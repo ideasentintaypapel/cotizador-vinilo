@@ -45,20 +45,27 @@ def calcular_escala_inteligente(img_array, ancho_cm, max_megapixels=2.5):
     else:
         ppi_ideal = 300.0  # Alto detalle, texturas complejas
 
-    # 3. Cálculo de dimensiones target
+    # 3. Cálculo de dimensiones target ideal
     ancho_px_target = int((ancho_cm / 2.54) * ppi_ideal)
+    
+    # 3.5 PREVENIR UPSCALING (El origen del problema de memoria)
+    # Agrandar artificialmente una imagen digital no da más detalles físicos,
+    # solo multiplica exponencialmente la RAM necesaria y crashea el servidor.
+    if ancho_px_target > w_orig:
+        ancho_px_target = w_orig
+
     escala = ancho_px_target / w_orig if w_orig > 0 else 1.0
     h_target = int(h_orig * escala)
 
-    # 4. Freno de emergencia (OOM prevention)
+    # 4. Freno de emergencia (OOM prevention vía Max Megapixels)
     mp_target = (ancho_px_target * h_target) / 1_000_000
     if mp_target > max_megapixels:
         factor_reduccion = math.sqrt(max_megapixels / mp_target)
         ancho_px_target = int(ancho_px_target * factor_reduccion)
         h_target = int(h_target * factor_reduccion)
-        ppi_aplicado = (ancho_px_target / ancho_cm) * 2.54 if ancho_cm > 0 else 75.0
-    else:
-        ppi_aplicado = ppi_ideal
+
+    # 5. Calculamos el PPI que REALMENTE va a tener la imagen procesada
+    ppi_aplicado = (ancho_px_target / ancho_cm) * 2.54 if ancho_cm > 0 else 75.0
 
     # Asegurar dimensiones válidas para evitar crash en cv2.resize
     ancho_px_target = max(1, ancho_px_target)
@@ -183,7 +190,8 @@ if ejecutar and uploaded_file is not None:
         # Escalamos para evitar OOM si la original es muy grande o la diferencia es significativa
         img_mp = (img_array.shape[1] * img_array.shape[0]) / 1_000_000
         if abs(ancho_px_target - img_array.shape[1]) > 50 or img_mp > 2.5:
-            img_procesada = cv2.resize(img_array, (ancho_px_target, alto_px_target), interpolation=cv2.INTER_CUBIC)
+            # INTER_AREA reduce mejor, sin generar ruido artificial y con menos RAM que CUBIC
+            img_procesada = cv2.resize(img_array, (ancho_px_target, alto_px_target), interpolation=cv2.INTER_AREA)
         else:
             img_procesada = img_array.copy()
             
