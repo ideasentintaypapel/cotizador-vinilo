@@ -23,9 +23,18 @@ def calcular_escala_inteligente(img_array, ancho_cm, max_megapixels=2.5):
     para evitar errores de Out-Of-Memory en la nube.
     """
     h_orig, w_orig = img_array.shape[:2]
-    
-    # 1. Análisis rápido de detalle (Varianza del Laplaciano)
-    gris = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    # -- PRE-ESCALADO DE SEGURIDAD (OOM prevention) --
+    mp_orig = (w_orig * h_orig) / 1_000_000
+    if mp_orig > max_megapixels:
+        factor_seguridad = math.sqrt(max_megapixels / mp_orig)
+        w_safe = int(w_orig * factor_seguridad)
+        h_safe = int(h_orig * factor_seguridad)
+        img_analisis = cv2.resize(img_array, (w_safe, h_safe), interpolation=cv2.INTER_AREA)
+    else:
+        img_analisis = img_array
+
+    # 1. Análisis rápido de detalle (Varianza del Laplaciano) - Sobre imagen segura
+    gris = cv2.cvtColor(img_analisis, cv2.COLOR_RGB2GRAY)
     varianza_bordes = cv2.Laplacian(gris, cv2.CV_64F).var()
 
     # 2. Asignación dinámica de PPI según complejidad
@@ -158,7 +167,9 @@ if ejecutar and uploaded_file is not None:
         if uploaded_file.name.lower().endswith('.svg'):
             drawing = svg2rlg(uploaded_file)
             img_buffer = io.BytesIO()
-            renderPM.drawToFile(drawing, img_buffer, fmt="PNG", dpi=300)
+            # Reducimos drásticamente los DPI (de 300 a 72) porque los SVG de vinilos (metros de largo) 
+            # a 300 DPI generan imágenes en RAM de varios Gigabytes y crashean el servidor (OOM).
+            renderPM.drawToFile(drawing, img_buffer, fmt="PNG", dpi=72)
             img_buffer.seek(0)
             image = Image.open(img_buffer).convert("RGB")
         else:
